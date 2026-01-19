@@ -182,7 +182,7 @@ export default function TennisLedger() {
     setClasses([...classes, { id: Date.now(), date: today, note: '' }]);
   };
 
-  const NavButton = ({ id, icon: Icon, label }: { id: string; icon: () => JSX.Element; label: string }) => (
+  const NavButton = ({ id, icon: Icon, label }: { id: string; icon: () => React.ReactElement; label: string }) => (
     <button onClick={() => setTab(id)} className={`flex flex-col items-center gap-1 px-4 py-2 rounded-2xl transition-all ${tab === id ? 'bg-[#c8e64a] text-gray-800 shadow-md' : 'text-gray-400 hover:text-gray-600'}`}>
       <Icon /><span className="text-xs font-medium">{label}</span>
     </button>
