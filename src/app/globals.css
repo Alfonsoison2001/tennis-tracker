@@ -2,30 +2,47 @@
 @tailwind components;
 @tailwind utilities;
 
+@import url('https://fonts.cdnfonts.com/css/century-gothic');
+
 :root {
-  --foreground-rgb: 0, 0, 0;
-  --background-rgb: 245, 245, 245;
+  --tennis-green: #c8e64a;
+  --tennis-green-dark: #9bc72b;
+  --tennis-green-light: #e8f5a3;
+}
+
+* {
+  font-family: 'Century Gothic', 'Segoe UI', sans-serif;
 }
 
 body {
-  color: rgb(var(--foreground-rgb));
-  background: rgb(var(--background-rgb));
+  font-family: 'Century Gothic', 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: #e8e8e8;
 }
 
-@layer utilities {
-  .card {
-    @apply bg-white rounded-xl shadow-md p-6;
-  }
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
 
-  .btn-primary {
-    @apply bg-tennis-green text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors;
-  }
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
 
-  .btn-secondary {
-    @apply bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 transition-colors;
-  }
+::-webkit-scrollbar-thumb {
+  background: #c8e64a;
+  border-radius: 3px;
+}
 
-  .input-field {
-    @apply w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-tennis-green;
-  }
+::-webkit-scrollbar-thumb:hover {
+  background: #b5d43a;
+}
+
+/* Input styling for light theme */
+input[type="date"],
+input[type="month"],
+input[type="number"],
+input[type="text"] {
+  color-scheme: light;
 }
