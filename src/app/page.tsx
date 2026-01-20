@@ -1,7 +1,8 @@
 'use client'
 
-// Tennis Ledger App v2.0
-import React, { useState, useMemo } from 'react';
+// Tennis Ledger App v2.0 with Supabase
+import React, { useState, useMemo, useEffect } from 'react';
+import { supabase } from '@/lib/supabase';
 
 const Icons = {
   Home: () => <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>,
@@ -22,7 +23,7 @@ const Icons = {
 const CLASSES_PER_MONTH = 12;
 
 interface Plan {
-  id: number;
+  id: string;
   month: string;
   classes: number;
   price: number;
@@ -32,7 +33,7 @@ interface Plan {
 }
 
 interface Class {
-  id: number;
+  id: string;
   date: string;
   note: string;
 }
@@ -45,7 +46,74 @@ export default function TennisLedger() {
   const [showAddPlan, setShowAddPlan] = useState(false);
   const [editingClass, setEditingClass] = useState<Class | null>(null);
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState<{ type: string | null; id: number | null }>({ type: null, id: null });
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<{ type: string | null; id: string | null }>({ type: null, id: null });
+  const [loading, setLoading] = useState(true);
+
+  // Load data from Supabase on mount
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      // Load classes
+      const { data: clasesData } = await supabase
+        .from('clases')
+        .select('*')
+        .order('fecha', { ascending: false });
+
+      if (clasesData) {
+        setClasses(clasesData.map(c => ({
+          id: c.id,
+          date: c.fecha,
+          note: c.nota || ''
+        })));
+      }
+
+      // Load payments
+      const { data: pagosData } = await supabase
+        .from('pagos')
+        .select('*')
+        .order('mes', { ascending: false });
+
+      if (pagosData) {
+        setPlans(pagosData.map(p => ({
+          id: p.id,
+          month: p.mes,
+          classes: 12,
+          price: Number(p.monto),
+          paidDate: '',
+          paidAmount: Number(p.monto),
+          method: 'Transferencia'
+        })));
+      }
+
+      // Load configuration
+      const { data: configData } = await supabase
+        .from('configuracion')
+        .select('*');
+
+      if (configData) {
+        const startMonthConfig = configData.find(c => c.clave === 'startMonth');
+        if (startMonthConfig) {
+          setStartMonth(startMonthConfig.valor);
+        }
+
+        const monthlyClassesConfig = configData.find(c => c.clave === 'monthlyClasses');
+        if (monthlyClassesConfig) {
+          try {
+            setMonthlyClasses(JSON.parse(monthlyClassesConfig.valor));
+          } catch {
+            // If parse fails, keep default
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error loading data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const getCurrentMonth = () => {
     const now = new Date();
@@ -139,48 +207,138 @@ export default function TennisLedger() {
     setSelectedMonth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
   };
 
-  const addClass = () => {
-    setClasses([...classes, { ...newClass, id: Date.now() }]);
+  const addClass = async () => {
+    const { data, error } = await supabase
+      .from('clases')
+      .insert({ fecha: newClass.date, nota: newClass.note || null })
+      .select()
+      .single();
+
+    if (!error && data) {
+      setClasses([{ id: data.id, date: data.fecha, note: data.nota || '' }, ...classes]);
+    }
     setNewClass({ date: new Date().toISOString().split('T')[0], note: '' });
     setShowAddClass(false);
   };
 
-  const updateClass = () => {
+  const updateClass = async () => {
     if (!editingClass) return;
-    setClasses(classes.map(c => c.id === editingClass.id ? editingClass : c));
+
+    const { error } = await supabase
+      .from('clases')
+      .update({ fecha: editingClass.date, nota: editingClass.note || null })
+      .eq('id', editingClass.id);
+
+    if (!error) {
+      setClasses(classes.map(c => c.id === editingClass.id ? editingClass : c));
+    }
     setEditingClass(null);
   };
 
-  const deleteClass = (id: number) => {
-    setClasses(classes.filter(c => c.id !== id));
+  const deleteClass = async (id: string) => {
+    const { error } = await supabase
+      .from('clases')
+      .delete()
+      .eq('id', id);
+
+    if (!error) {
+      setClasses(classes.filter(c => c.id !== id));
+    }
     setShowDeleteConfirm({ type: null, id: null });
   };
 
-  const addPlan = () => {
-    const existingIndex = plans.findIndex(p => p.month === newPlan.month);
-    if (existingIndex >= 0) {
-      setPlans(plans.map((p, i) => i === existingIndex ? { ...newPlan, id: p.id } : p));
+  const addPlan = async () => {
+    const existingPlan = plans.find(p => p.month === newPlan.month);
+
+    if (existingPlan) {
+      // Update existing
+      const { error } = await supabase
+        .from('pagos')
+        .update({ monto: newPlan.paidAmount })
+        .eq('id', existingPlan.id);
+
+      if (!error) {
+        setPlans(plans.map(p => p.id === existingPlan.id ? { ...newPlan, id: p.id } : p));
+      }
     } else {
-      setPlans([...plans, { ...newPlan, id: Date.now() }]);
+      // Insert new
+      const { data, error } = await supabase
+        .from('pagos')
+        .insert({ mes: newPlan.month, monto: newPlan.paidAmount })
+        .select()
+        .single();
+
+      if (!error && data) {
+        setPlans([{
+          id: data.id,
+          month: data.mes,
+          classes: 12,
+          price: Number(data.monto),
+          paidDate: '',
+          paidAmount: Number(data.monto),
+          method: 'Transferencia'
+        }, ...plans]);
+      }
     }
     setNewPlan({ month: selectedMonth, classes: CLASSES_PER_MONTH, price: 3600, paidDate: '', paidAmount: 3600, method: 'Transferencia' });
     setShowAddPlan(false);
   };
 
-  const updatePlan = () => {
+  const updatePlan = async () => {
     if (!editingPlan) return;
-    setPlans(plans.map(p => p.id === editingPlan.id ? editingPlan : p));
+
+    const { error } = await supabase
+      .from('pagos')
+      .update({ mes: editingPlan.month, monto: editingPlan.paidAmount })
+      .eq('id', editingPlan.id);
+
+    if (!error) {
+      setPlans(plans.map(p => p.id === editingPlan.id ? editingPlan : p));
+    }
     setEditingPlan(null);
   };
 
-  const deletePlan = (id: number) => {
-    setPlans(plans.filter(p => p.id !== id));
+  const deletePlan = async (id: string) => {
+    const { error } = await supabase
+      .from('pagos')
+      .delete()
+      .eq('id', id);
+
+    if (!error) {
+      setPlans(plans.filter(p => p.id !== id));
+    }
     setShowDeleteConfirm({ type: null, id: null });
   };
 
-  const quickAddClass = () => {
+  const quickAddClass = async () => {
     const today = new Date().toISOString().split('T')[0];
-    setClasses([...classes, { id: Date.now(), date: today, note: '' }]);
+
+    const { data, error } = await supabase
+      .from('clases')
+      .insert({ fecha: today, nota: null })
+      .select()
+      .single();
+
+    if (!error && data) {
+      setClasses([{ id: data.id, date: data.fecha, note: '' }, ...classes]);
+    }
+  };
+
+  const saveConfig = async (key: string, value: string) => {
+    await supabase
+      .from('configuracion')
+      .upsert({ clave: key, valor: value }, { onConflict: 'clave' });
+  };
+
+  const handleStartMonthChange = (value: string) => {
+    setStartMonth(value);
+    saveConfig('startMonth', value);
+  };
+
+  const handleMonthlyClassesChange = (month: string, count: number) => {
+    const newMonthlyClasses = { ...monthlyClasses, [month]: count };
+    setMonthlyClasses(newMonthlyClasses);
+    saveConfig('monthlyClasses', JSON.stringify(newMonthlyClasses));
   };
 
   const NavButton = ({ id, icon: Icon, label }: { id: string; icon: () => React.ReactElement; label: string }) => (
@@ -235,6 +393,19 @@ export default function TennisLedger() {
       <button onClick={onDelete} className="p-2 text-gray-400 hover:text-red-400 hover:bg-gray-50 rounded-xl transition-colors"><Icons.Trash /></button>
     </div>
   );
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#e8e8e8] flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 bg-[#c8e64a] rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
+            <Icons.TennisBall />
+          </div>
+          <p className="text-gray-500">Cargando...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#e8e8e8] text-gray-800">
@@ -490,7 +661,7 @@ export default function TennisLedger() {
                 <input
                   type="month"
                   value={startMonth}
-                  onChange={e => setStartMonth(e.target.value)}
+                  onChange={e => handleStartMonthChange(e.target.value)}
                   className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#c8e64a] focus:border-transparent"
                 />
                 <p className="text-xs text-gray-400 mt-2">Las clases se cuentan desde este mes</p>
@@ -642,7 +813,7 @@ export default function TennisLedger() {
           <div className="flex gap-3">
             <button
               onClick={() => {
-                setMonthlyClasses({ ...monthlyClasses, [editingMonthClasses.month]: CLASSES_PER_MONTH });
+                handleMonthlyClassesChange(editingMonthClasses.month, CLASSES_PER_MONTH);
                 setShowEditMonthClasses(false);
               }}
               className="flex-1 bg-gray-100 hover:bg-gray-200 py-3 rounded-xl font-medium text-gray-600 transition-colors"
@@ -651,7 +822,7 @@ export default function TennisLedger() {
             </button>
             <button
               onClick={() => {
-                setMonthlyClasses({ ...monthlyClasses, [editingMonthClasses.month]: editingMonthClasses.classes });
+                handleMonthlyClassesChange(editingMonthClasses.month, editingMonthClasses.classes);
                 setShowEditMonthClasses(false);
               }}
               className="flex-1 bg-gradient-to-r from-[#c8e64a] to-[#b5d43a] py-3 rounded-xl font-medium text-gray-800 transition-colors"
